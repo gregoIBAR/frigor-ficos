@@ -1,8 +1,4 @@
-// Service worker for the "Comparación entre Frigoríficos GI/EM" PWA.
-// Cache-first strategy: after the first successful load, the whole app
-// (HTML, JS libraries, icons) works fully offline. Bump CACHE_NAME to
-// force everyone onto a fresh cache the next time they open the app.
-const CACHE_NAME = 'frigorificos-gi-em-v3';
+const CACHE_NAME = 'frigorificos-gi-em-v5';
 
 const PRECACHE_URLS = [
   './',
