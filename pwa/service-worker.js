@@ -2,7 +2,7 @@
 // Cache-first strategy: after the first successful load, the whole app
 // (HTML, JS libraries, icons) works fully offline. Bump CACHE_NAME to
 // force everyone onto a fresh cache the next time they open the app.
-const CACHE_NAME = 'frigorificos-gi-em-v1';
+const CACHE_NAME = 'frigorificos-gi-em-v3';
 
 const PRECACHE_URLS = [
   './',
