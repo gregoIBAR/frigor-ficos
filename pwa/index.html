@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Comparación entre Frigoríficos GI/EM</title>
+
+<!-- PWA: manifest + icons + theme -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#2a78d6" />
+<link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Frigoríficos" />
+<meta name="mobile-web-app-capable" content="yes" />
+
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="vendor/babel.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/html2canvas.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
+<style>
+  :root, .app {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page-plane:     #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --good:           #0ca30c;
+    --good-text:      #006300;
+    --critical:       #d03b3b;
+    --series-1:       #2a78d6;
+    --series-2:       #008300;
+    --series-3:       #e87ba4;
+    --series-4:       #eda100;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body {
+    background: var(--page-plane);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { max-width: 1280px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  /* ---------- header ---------- */
+  .header {
+    display:flex; justify-content:space-between; align-items:flex-start;
+    gap:16px; flex-wrap:wrap; margin-bottom: 20px;
+  }
+  .header h1 { font-size: 26px; font-weight: 700; margin:0 0 4px; letter-spacing:-0.01em; }
+  .header p { margin:0; color:var(--text-secondary); font-size:14px; max-width:640px; }
+  .saved-note { margin-top:6px !important; font-size:12px !important; color:var(--good-text) !important; font-weight:600; }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; }
+  .btn {
+    border:1px solid var(--border); background:var(--surface-1); color:var(--text-primary);
+    padding:9px 14px; border-radius:8px; font-size:13.5px; font-weight:600; cursor:pointer;
+    display:inline-flex; align-items:center; gap:6px; transition: background .15s, transform .05s;
+  }
+  .btn:hover { background:#f1f1ee; }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary { background:var(--series-1); color:#fff; border-color:var(--series-1); }
+  .btn-primary:hover { background:#2468bd; }
+  .btn-add { background:var(--good); color:#fff; border-color:var(--good); }
+  .btn-add:hover { background:#0a8c0a; }
+  .btn-sm { padding:5px 9px; font-size:12px; }
+
+  /* ---------- KPI row ---------- */
+  .kpi-grid {
+    display:grid; grid-template-columns: repeat(5, 1fr); gap:12px; margin-bottom:24px;
+  }
+  .kpi-card {
+    background:var(--surface-1); border:1px solid var(--border); border-radius:12px;
+    padding:16px; box-shadow: 0 1px 2px rgba(11,11,11,0.04);
+  }
+  .kpi-label { font-size:12px; color:var(--text-secondary); margin-bottom:6px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
+  .kpi-value { font-size:22px; font-weight:700; line-height:1.15; }
+  .kpi-value.good { color: var(--good-text); }
+  .kpi-sub { font-size:12px; color:var(--text-muted); margin-top:4px; }
+
+  /* ---------- section titles ---------- */
+  .section { margin: 30px 0 14px; }
+  .section h2 { font-size:18px; font-weight:700; margin:0 0 4px; }
+  .section .hint { font-size:13px; color:var(--text-secondary); margin:0; }
+
+  /* ---------- comparator cards ---------- */
+  .cards-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap:16px; }
+  .frig-card {
+    background:var(--surface-1); border:1px solid var(--border); border-radius:14px;
+    padding:18px; position:relative; border-left:5px solid var(--baseline);
+    box-shadow: 0 1px 3px rgba(11,11,11,0.05);
+  }
+  .frig-card.best { border-left-color: var(--good); }
+  .frig-card.worst { border-left-color: var(--critical); }
+  .frig-card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:12px; }
+  .frig-name-input {
+    font-size:18px; font-weight:700; border:none; background:transparent; padding:2px 4px;
+    border-radius:6px; width:100%; color:var(--text-primary);
+  }
+  .frig-name-input:focus { outline:2px solid var(--series-1); background:#fff; }
+  .badge {
+    font-size:11px; font-weight:700; padding:4px 9px; border-radius:999px; white-space:nowrap;
+    text-transform:uppercase; letter-spacing:.02em;
+  }
+  .badge-good { background:rgba(12,163,12,0.12); color:var(--good-text); }
+  .badge-critical { background:rgba(208,59,59,0.12); color:var(--critical); }
+  .badge-mid { background:rgba(137,135,129,0.14); color:var(--text-secondary); }
+  .card-actions { display:flex; gap:6px; margin-top:6px; }
+
+  .field-block { margin-bottom:10px; }
+  .field-row { display:flex; gap:10px; align-items:center; }
+  .field { flex:1; }
+  .field label { display:block; font-size:11.5px; color:var(--text-secondary); font-weight:600; margin-bottom:3px; }
+  .field input[type=number], .field input[type=text], .field select, .field textarea {
+    width:100%; padding:7px 8px; border:1px solid var(--border); border-radius:7px;
+    font-size:13.5px; background:#fff; color:var(--text-primary); font-family:inherit;
+  }
+  .field textarea { resize:vertical; min-height:44px; }
+  .field input[type=range] { width:100%; accent-color: var(--series-1); margin-top:4px; }
+  .flete-toggle { display:flex; gap:6px; margin-bottom:6px; }
+  .flete-toggle button {
+    flex:1; font-size:11.5px; padding:5px 6px; border-radius:6px; border:1px solid var(--border);
+    background:#fff; cursor:pointer; color:var(--text-secondary); font-weight:600;
+  }
+  .flete-toggle button.active { background:var(--series-1); color:#fff; border-color:var(--series-1); }
+
+  .divider { border:none; border-top:1px solid var(--gridline); margin:14px 0; }
+  .subhead { font-size:12.5px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.03em; margin:0 0 8px; }
+
+  .results-box { background:var(--page-plane); border-radius:10px; padding:12px 14px; margin-top:12px; }
+  .result-line { display:flex; justify-content:space-between; align-items:baseline; font-size:13px; padding:3px 0; color:var(--text-secondary); }
+  .result-line b { color:var(--text-primary); font-weight:600; font-variant-numeric: tabular-nums; }
+  .result-hero { display:flex; justify-content:space-between; align-items:baseline; margin:6px 0 2px; }
+  .result-hero .lbl { font-size:12.5px; font-weight:700; color:var(--text-secondary); }
+  .result-hero .val { font-size:24px; font-weight:700; }
+
+  .peso-vivo-note { font-size:11.5px; color:var(--text-muted); margin-top:2px; }
+
+  /* ---------- charts ---------- */
+  .charts-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:16px; }
+  .chart-card {
+    background:var(--surface-1); border:1px solid var(--border); border-radius:14px; padding:16px 18px 18px;
+    box-shadow: 0 1px 3px rgba(11,11,11,0.05);
+  }
+  .chart-title { font-size:14px; font-weight:700; margin:0 0 14px; }
+  .col-chart { display:flex; align-items:flex-end; gap:6px; height:190px; padding:0 4px; }
+  .col-slot { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; min-width:0; }
+  .col-value { font-size:12px; font-weight:700; margin-bottom:6px; font-variant-numeric: tabular-nums; white-space:nowrap; }
+  .col-bar { width:26px; max-width:60%; border-radius:4px 4px 0 0; }
+  .col-baseline { height:1px; background:var(--baseline); margin:0 4px; }
+  .col-labels { display:flex; margin-top:8px; gap:6px; padding:0 4px; }
+  .col-label { flex:1; text-align:center; font-size:11.5px; color:var(--text-secondary); display:flex; align-items:center; justify-content:center; gap:4px; min-width:0; }
+  .col-label span.txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dot { width:8px; height:8px; border-radius:50%; display:inline-block; flex:none; }
+
+  .donuts-row { display:flex; flex-wrap:wrap; gap:22px; justify-content:space-around; }
+  .donut-item { display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .donut-legend { font-size:11.5px; color:var(--text-secondary); display:flex; gap:10px; }
+  .donut-legend span { display:flex; align-items:center; gap:4px; }
+  .donut-name { font-size:13px; font-weight:700; }
+
+  /* ---------- table ---------- */
+  .table-wrap { overflow-x:auto; background:var(--surface-1); border:1px solid var(--border); border-radius:14px; box-shadow: 0 1px 3px rgba(11,11,11,0.05); }
+  table.compare-table { border-collapse:collapse; width:100%; font-size:13px; min-width:520px; }
+  table.compare-table th, table.compare-table td { padding:10px 14px; text-align:right; border-bottom:1px solid var(--gridline); white-space:nowrap; font-variant-numeric: tabular-nums; }
+  table.compare-table th:first-child, table.compare-table td:first-child { text-align:left; font-variant-numeric: normal; position:sticky; left:0; background:var(--surface-1); }
+  table.compare-table thead th { color:var(--text-secondary); font-size:11.5px; text-transform:uppercase; letter-spacing:.02em; font-weight:700; background:var(--page-plane); }
+  table.compare-table tbody tr:last-child td { border-bottom:none; }
+  table.compare-table td.best-cell { color: var(--good-text); font-weight:700; }
+  table.compare-table td.neg { color: var(--critical); }
+  .row-label { color:var(--text-secondary); font-weight:600; }
+
+  /* ---------- negotiation ---------- */
+  .negotiation-card {
+    background:linear-gradient(135deg, #eef5ff 0%, var(--surface-1) 55%);
+    border:1px solid var(--border); border-radius:14px; padding:20px 22px;
+    box-shadow: 0 1px 3px rgba(11,11,11,0.05);
+  }
+  .negotiation-card h3 { margin:0 0 4px; font-size:16px; }
+  .negotiation-card .hint { margin:0 0 14px; font-size:13px; color:var(--text-secondary); }
+  .eq-line {
+    background:#fff; border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:10px;
+    font-size:13.5px; line-height:1.55;
+  }
+  .eq-line b { font-variant-numeric: tabular-nums; }
+  .eq-tool { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-top:16px; padding-top:16px; border-top:1px dashed var(--gridline); }
+  .eq-tool .field { min-width:170px; flex:none; }
+  .eq-result { flex:1; min-width:220px; background:#fff; border:1px solid var(--border); border-radius:10px; padding:10px 14px; font-size:13.5px; }
+
+  footer.formulas { margin-top:34px; padding-top:16px; border-top:1px solid var(--gridline); font-size:11.5px; color:var(--text-muted); line-height:1.7; }
+  footer.formulas b { color:var(--text-secondary); }
+
+  @media (max-width: 900px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 560px) {
+    .kpi-grid { grid-template-columns: 1fr; }
+    .header { flex-direction:column; }
+  }
+
+  @media print {
+    body { background:#fff; }
+    .no-print { display:none !important; }
+    .app { max-width:100%; padding:0 8px; }
+    .frig-card, .chart-card, .kpi-card, .negotiation-card, .table-wrap { box-shadow:none; break-inside: avoid; }
+    .cards-grid, .charts-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  }
+  .is-exporting .no-print { display:none !important; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/plain" id="app-source">
+const { useState, useMemo, useCallback, useRef, useEffect } = React;
+const STORAGE_KEY = 'frigorificos_dashboard_v1';
+
+function loadSaved() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.frigorificos) || parsed.frigorificos.length < 2) return null;
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
+
+const SERIES_COLORS = ['#2a78d6', '#008300', '#e87ba4', '#eda100', '#1baf7a', '#eb6834', '#4a3aa7', '#e34948'];
+const STATUS = { good: '#0ca30c', critical: '#d03b3b', neutral: '#898781' };
+
+const fmtMoney = (n) => '$' + new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(Math.round(n || 0));
+const fmtMoney2 = (n) => '$' + new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
+const fmtKg = (n) => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(Math.round(n || 0)) + ' kg';
+const fmtNum = (n, d = 0) => new Intl.NumberFormat('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d }).format(n || 0);
+const fmtPct = (n) => fmtNum(n, 1) + '%';
+const signed = (n, fmt) => (n > 0 ? '+' : '') + fmt(n);
+
+const FIELD_CFG = {
+  precioCarne: { min: 0, max: 10000, step: 10 },
+  precioKgVivo: { min: 0, max: 6000, step: 10 },
+  desbaste: { min: 0, max: 15, step: 0.1 },
+  rinde: { min: 30, max: 70, step: 0.1 },
+  distanciaKm: { min: 0, max: 1000, step: 5 },
+  fleteValorKm: { min: 0, max: 8000, step: 50 },
+  fleteValorTotal: { min: 0, max: 3000000, step: 5000 },
+  otrosDescuentos: { min: 0, max: 2000000, step: 1000 },
+  premioCalidad: { min: 500000, max: 9000000, step: 10000 },
+  comision: { min: 0, max: 6, step: 0.1 },
+  cantidadAnimales: { min: 1, max: 400, step: 1 },
+  pesoPromedio: { min: 100, max: 700, step: 5 },
+};
+
+function initialFrigorificos() {
+  return [
+    { id: 1, nombre: 'Frigorífico A', modoPago: 'carne', precioCarne: 3200, precioKgVivo: 1900, desbaste: 4, rinde: 58, distanciaKm: 80, fleteModo: 'porKm', fleteValor: 3500, otrosDescuentos: 0, premioCalidad: 0, comision: 0, observaciones: '', cantidadAnimales: 40, pesoPromedio: 480 },
+    { id: 2, nombre: 'Frigorífico B', modoPago: 'carne', precioCarne: 3350, precioKgVivo: 1900, desbaste: 4, rinde: 56, distanciaKm: 150, fleteModo: 'porKm', fleteValor: 3500, otrosDescuentos: 0, premioCalidad: 0, comision: 0, observaciones: '', cantidadAnimales: 40, pesoPromedio: 480 },
+  ];
+}
+
+function computeFrig(f) {
+  const modoPago = f.modoPago === 'vivo' ? 'vivo' : 'carne';
+  const pesoVivoTotal = (Number(f.cantidadAnimales) || 0) * (Number(f.pesoPromedio) || 0);
+  const desbastePct = Number(f.desbaste) || 0;
+  // Pago por kg vivo: se paga el peso pesado menos el desbaste que se aplique (no interviene el rinde).
+  const pesoPagable = modoPago === 'vivo' ? pesoVivoTotal * (1 - desbastePct / 100) : pesoVivoTotal;
+  const kgCarne = modoPago === 'vivo' ? null : pesoVivoTotal * ((Number(f.rinde) || 0) / 100);
+  const ingresoBruto = modoPago === 'vivo' ? pesoPagable * (Number(f.precioKgVivo) || 0) : kgCarne * (Number(f.precioCarne) || 0);
+  const costoFlete = f.fleteModo === 'total'
+    ? (Number(f.fleteValor) || 0)
+    : (Number(f.fleteValor) || 0) * (Number(f.distanciaKm) || 0);
+  const descuentos = Number(f.otrosDescuentos) || 0;
+  const premioCalidad = Number(f.premioCalidad) || 0;
+  const comisionPct = Number(f.comision) || 0;
+  const comisionMonto = ingresoBruto * (comisionPct / 100);
+  const costoFletePorKg = (modoPago !== 'vivo' && kgCarne > 0) ? costoFlete / kgCarne : null;
+  const costoFletePorKgVivo = pesoVivoTotal > 0 ? costoFlete / pesoVivoTotal : 0;
+  const ingresoNeto = ingresoBruto - costoFlete - descuentos - comisionMonto + premioCalidad;
+  const precioEfectivoPorKgCarne = (modoPago !== 'vivo' && kgCarne > 0) ? ingresoNeto / kgCarne : null;
+  const precioEquivalenteKgVivo = pesoVivoTotal > 0 ? ingresoNeto / pesoVivoTotal : 0;
+  const fletePctSobreVenta = ingresoBruto > 0 ? (costoFlete / ingresoBruto) * 100 : 0;
+  return { ...f, modoPago, pesoVivoTotal, kgCarne, pesoPagable, ingresoBruto, costoFlete, descuentos, premioCalidad, comisionPct, comisionMonto, costoFletePorKg, costoFletePorKgVivo, ingresoNeto, precioEfectivoPorKgCarne, precioEquivalenteKgVivo, fletePctSobreVenta };
+}
+
+function precioEquilibrioDe(target, referenciaIngresoNeto) {
+  const base = target.modoPago === 'vivo' ? target.pesoPagable : target.kgCarne;
+  const factorComision = 1 - (target.comisionPct || 0) / 100;
+  const precio = (base > 0 && factorComision > 0)
+    ? (referenciaIngresoNeto + target.costoFlete + target.descuentos - target.premioCalidad) / (base * factorComision)
+    : 0;
+  const actual = target.modoPago === 'vivo' ? (Number(target.precioKgVivo) || 0) : (Number(target.precioCarne) || 0);
+  const unidad = target.modoPago === 'vivo' ? '$/kg vivo' : '$/kg carne';
+  const brecha = precio - actual;
+  const brechaPct = actual > 0 ? (brecha / actual) * 100 : 0;
+  return { precio, actual, unidad, brecha, brechaPct };
+}
+
+function NumSlider({ label, value, onChange, cfg, unit, step }) {
+  return (
+    <div className="field">
+      <label>{label}{unit ? ' (' + unit + ')' : ''}</label>
+      <input type="number" value={value} step={step || cfg.step}
+        onChange={(e) => onChange(e.target.value === '' ? 0 : parseFloat(e.target.value))} />
+      <input type="range" min={cfg.min} max={cfg.max} step={step || cfg.step} value={value || 0}
+        onChange={(e) => onChange(parseFloat(e.target.value))} />
+    </div>
+  );
+}
+
+function ColumnChart({ title, items, formatter }) {
+  const max = Math.max(...items.map((i) => Math.max(i.value, 0)), 1);
+  return (
+    <div className="chart-card">
+      <h3 className="chart-title">{title}</h3>
+      <div className="col-chart">
+        {items.map((i) => (
+          <div className="col-slot" key={i.id}>
+            <div className="col-value">{formatter(i.value)}</div>
+            <div className="col-bar" style={{ height: Math.max(4, (Math.max(i.value, 0) / max) * 170) + 'px', background: i.color }} />
+          </div>
+        ))}
+      </div>
+      <div className="col-baseline" />
+      <div className="col-labels">
+        {items.map((i) => (
+          <div className="col-label" key={i.id}><span className="dot" style={{ background: i.color }} /><span className="txt">{i.name}</span></div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Donut({ pct, color, size = 116 }) {
+  const r = size / 2 - 12;
+  const c = 2 * Math.PI * r;
+  const p = Math.max(0, Math.min(100, pct));
+  const dash = (c * p) / 100;
+  return (
+    <svg width={size} height={size} viewBox={'0 0 ' + size + ' ' + size}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e1e0d9" strokeWidth="15" />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth="15"
+        strokeDasharray={dash + ' ' + (c - dash)} strokeLinecap="round"
+        transform={'rotate(-90 ' + size / 2 + ' ' + size / 2 + ')'} />
+      <text x="50%" y="47%" textAnchor="middle" fontSize="19" fontWeight="700" fill="#0b0b0b">{fmtPct(p)}</text>
+      <text x="50%" y="64%" textAnchor="middle" fontSize="10.5" fill="#52514e">flete s/venta</text>
+    </svg>
+  );
+}
+
+function App() {
+  const saved0 = useMemo(() => loadSaved(), []);
+  const [frigorificos, setFrigorificos] = useState(() => (saved0 ? saved0.frigorificos : initialFrigorificos()));
+  const [nextId, setNextId] = useState(() => (saved0 && Number.isFinite(saved0.nextId) ? saved0.nextId : 3));
+  const [eqTarget, setEqTarget] = useState(null);
+  const [eqReference, setEqReference] = useState(null);
+  const [savedNotice, setSavedNotice] = useState(!!saved0);
+  const reportRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ frigorificos, nextId }));
+    } catch (e) {
+      /* localStorage no disponible (modo privado, permisos, etc.) — la app sigue funcionando sin guardado. */
+    }
+  }, [frigorificos, nextId]);
+
+  const resetDatos = () => {
+    if (!window.confirm('¿Borrar los datos guardados y volver a los valores de ejemplo?')) return;
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    setFrigorificos(initialFrigorificos());
+    setNextId(3);
+    setSavedNotice(false);
+  };
+
+  const computed = useMemo(() => frigorificos.map(computeFrig), [frigorificos]);
+  const ranking = useMemo(() => [...computed].sort((a, b) => b.ingresoNeto - a.ingresoNeto), [computed]);
+  const best = ranking[0];
+  const worst = ranking[ranking.length - 1];
+  const colorOf = (id) => {
+    const idx = frigorificos.findIndex((f) => f.id === id);
+    return SERIES_COLORS[idx % SERIES_COLORS.length];
+  };
+
+  const updateField = useCallback((id, field, value) => {
+    setFrigorificos((prev) => prev.map((f) => (f.id === id ? { ...f, [field]: value } : f)));
+  }, []);
+
+  const addFrigorifico = () => {
+    setFrigorificos((prev) => [...prev, {
+      id: nextId, nombre: 'Frigorífico ' + String.fromCharCode(65 + prev.length),
+      modoPago: 'carne', precioCarne: 3200, precioKgVivo: 1900, desbaste: 4, rinde: 57, distanciaKm: 100, fleteModo: 'porKm', fleteValor: 3500,
+      otrosDescuentos: 0, premioCalidad: 0, comision: 0, observaciones: '', cantidadAnimales: 40, pesoPromedio: 480,
+    }]);
+    setNextId((n) => n + 1);
+  };
+  const removeFrigorifico = (id) => setFrigorificos((prev) => (prev.length > 2 ? prev.filter((f) => f.id !== id) : prev));
+  const copyHaciendaFromBest = (toId) => {
+    setFrigorificos((prev) => {
+      const src = prev.find((f) => f.id === best.id);
+      if (!src) return prev;
+      return prev.map((f) => (f.id === toId ? { ...f, cantidadAnimales: src.cantidadAnimales, pesoPromedio: src.pesoPromedio } : f));
+    });
+  };
+
+  const diffTotal = best.ingresoNeto - worst.ingresoNeto;
+  const ambosPorCarne = best.modoPago !== 'vivo' && worst.modoPago !== 'vivo';
+  const diffPorKg = ambosPorCarne ? (best.precioEfectivoPorKgCarne - worst.precioEfectivoPorKgCarne) : (best.precioEquivalenteKgVivo - worst.precioEquivalenteKgVivo);
+  const diffPorKgLabel = ambosPorCarne ? 'Diferencia por kg carne' : 'Diferencia por kg vivo';
+  const diffPorAnimal = worst.cantidadAnimales > 0 ? diffTotal / worst.cantidadAnimales : 0;
+  const headlinePrecio = best.modoPago === 'vivo'
+    ? { valor: best.precioEquivalenteKgVivo, unidad: '/kg vivo' }
+    : { valor: best.precioEfectivoPorKgCarne, unidad: '/kg carne' };
+
+  const eqTargetId = eqTarget ?? worst.id;
+  const eqReferenceId = eqReference ?? best.id;
+  const eqTargetF = computed.find((f) => f.id === eqTargetId) || worst;
+  const eqReferenceF = computed.find((f) => f.id === eqReferenceId) || best;
+  const eqCalc = precioEquilibrioDe(eqTargetF, eqReferenceF.ingresoNeto);
+  const eqPrecio = eqCalc.precio;
+  const eqBrecha = eqCalc.brecha;
+  const eqBrechaPct = eqCalc.brechaPct;
+
+  const exportExcel = () => {
+    const rows = [];
+    rows.push(['Comparación entre Frigoríficos GI/EM']);
+    rows.push([]);
+    rows.push(['Métrica', ...computed.map((f) => f.nombre)]);
+    const rowsDef = [
+      ['Modo de pago', (f) => (f.modoPago === 'vivo' ? 'kg vivo (desbaste)' : 'kg de carne (rinde)')],
+      ['Precio ofrecido', (f) => (f.modoPago === 'vivo' ? fmtNum(f.precioKgVivo, 2) + ' $/kg vivo' : fmtNum(f.precioCarne, 2) + ' $/kg carne')],
+      ['Desbaste (%)', (f) => (f.modoPago === 'vivo' ? fmtNum(f.desbaste, 1) : '—')],
+      ['Rinde (%)', (f) => (f.modoPago === 'vivo' ? 'no aplica' : fmtNum(f.rinde, 1))],
+      ['Peso vivo total (kg)', (f) => fmtNum(f.pesoVivoTotal, 0)],
+      ['Kg de carne', (f) => (f.modoPago === 'vivo' ? '—' : fmtNum(f.kgCarne, 0))],
+      ['Ingreso bruto ($)', (f) => fmtNum(f.ingresoBruto, 0)],
+      ['Modo de flete', (f) => (f.fleteModo === 'total' ? '$ total' : '$/km')],
+      ['Costo de flete ($)', (f) => fmtNum(f.costoFlete, 0)],
+      ['Flete por kg', (f) => (f.modoPago === 'vivo' ? fmtNum(f.costoFletePorKgVivo, 2) + ' (por kg vivo)' : fmtNum(f.costoFletePorKg, 2) + ' (por kg carne)')],
+      ['Otros descuentos ($)', (f) => fmtNum(f.descuentos, 0)],
+      ['Comisión (%)', (f) => fmtNum(f.comisionPct, 1)],
+      ['Comisión ($)', (f) => fmtNum(f.comisionMonto, 0)],
+      ['Premio por calidad ($)', (f) => fmtNum(f.premioCalidad, 0)],
+      ['Precio neto (efectivo) por kg carne ($/kg)', (f) => (f.modoPago === 'vivo' ? '—' : fmtNum(f.precioEfectivoPorKgCarne, 2))],
+      ['Precio equivalente por kg vivo ($/kg)', (f) => fmtNum(f.precioEquivalenteKgVivo, 2)],
+      ['Ingreso neto ($)', (f) => fmtNum(f.ingresoNeto, 0)],
+      ['Diferencia vs mejor ($)', (f) => fmtNum(f.ingresoNeto - best.ingresoNeto, 0)],
+    ];
+    rowsDef.forEach(([label, fn]) => rows.push([label, ...computed.map(fn)]));
+    rows.push([]);
+    rows.push(['Mejor frigorífico', best.nombre]);
+    rows.push(['Diferencia total ($)', fmtNum(diffTotal, 0)]);
+    rows.push([diffPorKgLabel + ' ($)', fmtNum(diffPorKg, 2)]);
+    rows.push(['Diferencia por animal ($)', fmtNum(diffPorAnimal, 0)]);
+    rows.push(['Precio de equilibrio: ' + eqTargetF.nombre + ' para igualar a ' + eqReferenceF.nombre + ' (' + eqCalc.unidad + ')', fmtNum(eqPrecio, 2)]);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 42 }, ...computed.map(() => ({ wch: 20 }))];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Comparativa');
+    XLSX.writeFile(wb, 'comparacion_frigorificos.xlsx');
+  };
+
+  const exportPDF = async () => {
+    const el = reportRef.current;
+    document.body.classList.add('is-exporting');
+    await new Promise((r) => setTimeout(r, 60));
+    try {
+      const canvas = await html2canvas(el, { scale: 1.5, backgroundColor: '#fcfcfb', useCORS: true });
+      const imgData = canvas.toDataURL('image/jpeg', 0.9);
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4', compress: true });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+      pdf.save('comparacion_frigorificos.pdf');
+    } finally {
+      document.body.classList.remove('is-exporting');
+    }
+  };
+
+  const handlePrint = () => window.print();
+
+  return (
+    <div className="app" ref={reportRef}>
+      <div className="header">
+        <div>
+          <h1>Comparación entre Frigoríficos GI/EM</h1>
+          <p>Compará ofertas de distintos frigoríficos y descubrí cuál deja el mejor precio neto por kg de carne, considerando rendimiento y flete. Todo se recalcula al instante y se guarda solo en este navegador.</p>
+          {savedNotice && <p className="saved-note no-print">Se cargaron los últimos datos guardados en este navegador.</p>}
+        </div>
+        <div className="toolbar no-print">
+          <button className="btn btn-add" onClick={addFrigorifico}>+ Agregar frigorífico</button>
+          <button className="btn" onClick={exportExcel}>Exportar Excel</button>
+          <button className="btn" onClick={exportPDF}>Exportar PDF</button>
+          <button className="btn btn-primary" onClick={handlePrint}>Imprimir informe</button>
+          <button className="btn" onClick={resetDatos}>Restablecer valores</button>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div className="kpi-grid">
+        <div className="kpi-card">
+          <div className="kpi-label">Mejor frigorífico</div>
+          <div className="kpi-value good">{best.nombre}</div>
+          <div className="kpi-sub">Ingreso neto {fmtMoney(best.ingresoNeto)}</div>
+        </div>
+        <div className="kpi-card">
+          <div className="kpi-label">Diferencia total</div>
+          <div className="kpi-value">{fmtMoney(diffTotal)}</div>
+          <div className="kpi-sub">{best.nombre} vs {worst.nombre}</div>
+        </div>
+        <div className="kpi-card">
+          <div className="kpi-label">{diffPorKgLabel}</div>
+          <div className="kpi-value">{fmtMoney2(diffPorKg)}</div>
+          <div className="kpi-sub">precio neto</div>
+        </div>
+        <div className="kpi-card">
+          <div className="kpi-label">Diferencia por animal</div>
+          <div className="kpi-value">{fmtMoney(diffPorAnimal)}</div>
+          <div className="kpi-sub">sobre {fmtNum(worst.cantidadAnimales,0)} animales</div>
+        </div>
+        <div className="kpi-card">
+          <div className="kpi-label">Precio neto final</div>
+          <div className="kpi-value good">{fmtMoney2(headlinePrecio.valor)}{headlinePrecio.unidad}</div>
+          <div className="kpi-sub">{best.nombre}, luego de flete y descuentos</div>
+        </div>
+      </div>
+
+      {/* Cards */}
+      <div className="section">
+        <h2>Comparador</h2>
+        <p className="hint">Editá cualquier dato — precio, rinde, distancia, flete, hacienda — y los resultados se actualizan automáticamente.</p>
+      </div>
+      <div className="cards-grid">
+        {computed.map((f) => {
+          const status = f.id === best.id ? 'best' : (f.id === worst.id && best.id !== worst.id ? 'worst' : 'mid');
+          return (
+            <div key={f.id} className={'frig-card ' + status}>
+              <div className="frig-card-head">
+                <input className="frig-name-input" value={f.nombre} onChange={(e) => updateField(f.id, 'nombre', e.target.value)} />
+                {status === 'best' && <span className="badge badge-good">Mejor opción</span>}
+                {status === 'worst' && <span className="badge badge-critical">A negociar</span>}
+                {status === 'mid' && <span className="badge badge-mid">#{ranking.findIndex(r=>r.id===f.id)+1}</span>}
+              </div>
+
+              <p className="subhead">Datos comerciales</p>
+              <div className="field-row">
+                <div className="field">
+                  <label>Modo de pago</label>
+                  <div className="flete-toggle">
+                    <button type="button" className={(f.modoPago || 'carne') === 'carne' ? 'active' : ''} onClick={() => updateField(f.id, 'modoPago', 'carne')}>$/kg carne (rinde)</button>
+                    <button type="button" className={f.modoPago === 'vivo' ? 'active' : ''} onClick={() => updateField(f.id, 'modoPago', 'vivo')}>$/kg vivo (desbaste)</button>
+                  </div>
+                </div>
+              </div>
+              {(f.modoPago || 'carne') === 'carne' ? (
+                <div className="field-row">
+                  <NumSlider label="Precio ofrecido" unit="$/kg carne" cfg={FIELD_CFG.precioCarne} value={f.precioCarne} onChange={(v) => updateField(f.id, 'precioCarne', v)} />
+                  <NumSlider label="Rinde" unit="%" cfg={FIELD_CFG.rinde} value={f.rinde} onChange={(v) => updateField(f.id, 'rinde', v)} />
+                </div>
+              ) : (
+                <div className="field-row">
+                  <NumSlider label="Precio ofrecido" unit="$/kg vivo" cfg={FIELD_CFG.precioKgVivo} value={f.precioKgVivo} onChange={(v) => updateField(f.id, 'precioKgVivo', v)} />
+                  <NumSlider label="Desbaste" unit="%" cfg={FIELD_CFG.desbaste} value={f.desbaste} onChange={(v) => updateField(f.id, 'desbaste', v)} />
+                </div>
+              )}
+
+              <div className="field-row">
+                <NumSlider label="Distancia" unit="km" cfg={FIELD_CFG.distanciaKm} value={f.distanciaKm} onChange={(v) => updateField(f.id, 'distanciaKm', v)} />
+                <div className="field">
+                  <label>Flete</label>
+                  <div className="flete-toggle">
+                    <button type="button" className={f.fleteModo === 'porKm' ? 'active' : ''} onClick={() => updateField(f.id, 'fleteModo', 'porKm')}>$/km</button>
+                    <button type="button" className={f.fleteModo === 'total' ? 'active' : ''} onClick={() => updateField(f.id, 'fleteModo', 'total')}>$ total</button>
+                  </div>
+                  <input type="number" value={f.fleteValor} step={f.fleteModo === 'total' ? 5000 : 50}
+                    onChange={(e) => updateField(f.id, 'fleteValor', e.target.value === '' ? 0 : parseFloat(e.target.value))} />
+                  <input type="range" min={f.fleteModo === 'total' ? FIELD_CFG.fleteValorTotal.min : FIELD_CFG.fleteValorKm.min}
+                    max={f.fleteModo === 'total' ? FIELD_CFG.fleteValorTotal.max : FIELD_CFG.fleteValorKm.max}
+                    step={f.fleteModo === 'total' ? FIELD_CFG.fleteValorTotal.step : FIELD_CFG.fleteValorKm.step}
+                    value={f.fleteValor || 0} onChange={(e) => updateField(f.id, 'fleteValor', parseFloat(e.target.value))} />
+                </div>
+              </div>
+              <div className="field-row">
+                <NumSlider label="Otros descuentos" unit="$" cfg={FIELD_CFG.otrosDescuentos} value={f.otrosDescuentos} onChange={(v) => updateField(f.id, 'otrosDescuentos', v)} />
+                <NumSlider label="Premio por calidad" unit="$ total" cfg={FIELD_CFG.premioCalidad} value={f.premioCalidad} onChange={(v) => updateField(f.id, 'premioCalidad', v)} />
+              </div>
+              <div className="field-row">
+                <NumSlider label="Comisión" unit="%" cfg={FIELD_CFG.comision} value={f.comision} onChange={(v) => updateField(f.id, 'comision', v)} />
+              </div>
+              <div className="field-block">
+                <div className="field">
+                  <label>Observaciones</label>
+                  <textarea value={f.observaciones} onChange={(e) => updateField(f.id, 'observaciones', e.target.value)} placeholder="Condiciones de pago, plazo, calidad exigida, etc." />
+                </div>
+              </div>
+
+              <hr className="divider" />
+              <p className="subhead">Datos de la hacienda</p>
+              <div className="field-row">
+                <NumSlider label="Cantidad de animales" cfg={FIELD_CFG.cantidadAnimales} value={f.cantidadAnimales} onChange={(v) => updateField(f.id, 'cantidadAnimales', v)} />
+                <NumSlider label="Peso promedio" unit="kg" cfg={FIELD_CFG.pesoPromedio} value={f.pesoPromedio} onChange={(v) => updateField(f.id, 'pesoPromedio', v)} />
+              </div>
+              <div className="peso-vivo-note">
+                Peso vivo total (calculado): <b>{fmtKg(f.pesoVivoTotal)}</b>
+                {' · '}
+                <button className="btn btn-sm no-print" style={{marginLeft:4}} onClick={() => copyHaciendaFromBest(f.id)}>copiar hacienda del líder</button>
+              </div>
+
+              <hr className="divider" />
+              <p className="subhead">Resultados</p>
+              <div className="results-box">
+                {f.modoPago === 'vivo' ? (
+                  <div className="result-line"><span>Peso pagable (pesada − desbaste)</span><b>{fmtKg(f.pesoPagable)}</b></div>
+                ) : (
+                  <div className="result-line"><span>Kg de carne</span><b>{fmtKg(f.kgCarne)}</b></div>
+                )}
+                <div className="result-line"><span>Ingreso bruto</span><b>{fmtMoney(f.ingresoBruto)}</b></div>
+                <div className="result-line"><span>Costo de flete</span><b>{fmtMoney(f.costoFlete)}</b></div>
+                {f.modoPago === 'vivo' ? (
+                  <div className="result-line"><span>Flete por kg vivo</span><b>{fmtMoney2(f.costoFletePorKgVivo)}</b></div>
+                ) : (
+                  <div className="result-line"><span>Flete por kg de carne</span><b>{fmtMoney2(f.costoFletePorKg)}</b></div>
+                )}
+                <div className="result-line"><span>Otros descuentos</span><b>{fmtMoney(f.descuentos)}</b></div>
+                <div className="result-line"><span>Comisión ({fmtPct(f.comisionPct)})</span><b style={{color:'var(--critical)'}}>−{fmtMoney(f.comisionMonto)}</b></div>
+                <div className="result-line"><span>Premio por calidad</span><b style={{color:'var(--good-text)'}}>+{fmtMoney(f.premioCalidad)}</b></div>
+                {f.modoPago === 'vivo' ? (
+                  <div className="result-hero">
+                    <span className="lbl">Precio neto /kg vivo</span>
+                    <span className="val">{fmtMoney2(f.precioEquivalenteKgVivo)}</span>
+                  </div>
+                ) : (
+                  <React.Fragment>
+                    <div className="result-hero">
+                      <span className="lbl">Precio efectivo /kg carne</span>
+                      <span className="val">{fmtMoney2(f.precioEfectivoPorKgCarne)}</span>
+                    </div>
+                    <div className="result-line"><span>Precio equivalente /kg vivo</span><b>{fmtMoney2(f.precioEquivalenteKgVivo)}</b></div>
+                  </React.Fragment>
+                )}
+                <div className="result-hero">
+                  <span className="lbl">Ingreso neto total</span>
+                  <span className="val" style={{ color: f.id === best.id ? 'var(--good-text)' : (f.id===worst.id ? 'var(--critical)' : 'var(--text-primary)') }}>{fmtMoney(f.ingresoNeto)}</span>
+                </div>
+                <div className="result-line">
+                  <span>Diferencia vs mejor</span>
+                  <b style={{ color: f.id === best.id ? 'var(--good-text)' : 'var(--critical)' }}>{f.id === best.id ? '—' : signed(f.ingresoNeto - best.ingresoNeto, fmtMoney)}</b>
+                </div>
+              </div>
+
+              {frigorificos.length > 2 && (
+                <div className="card-actions no-print">
+                  <button className="btn btn-sm" onClick={() => removeFrigorifico(f.id)}>Eliminar frigorífico</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Charts */}
+      <div className="section">
+        <h2>Visualizaciones</h2>
+        <p className="hint">Comparación visual de ingreso neto, precio neto, costo de flete y su peso sobre la venta.</p>
+      </div>
+      <div className="charts-grid">
+        <ColumnChart title="Ingreso neto total" formatter={fmtMoney}
+          items={computed.map((f) => ({ id: f.id, name: f.nombre, value: f.ingresoNeto, color: colorOf(f.id) }))} />
+        <ColumnChart title="Precio neto por kg vivo" formatter={fmtMoney2}
+          items={computed.map((f) => ({ id: f.id, name: f.nombre, value: f.precioEquivalenteKgVivo, color: colorOf(f.id) }))} />
+        <ColumnChart title="Costo de flete total" formatter={fmtMoney}
+          items={computed.map((f) => ({ id: f.id, name: f.nombre, value: f.costoFlete, color: colorOf(f.id) }))} />
+        <div className="chart-card">
+          <h3 className="chart-title">Flete como % de la venta</h3>
+          <div className="donuts-row">
+            {computed.map((f) => (
+              <div className="donut-item" key={f.id}>
+                <Donut pct={f.fletePctSobreVenta} color={colorOf(f.id)} />
+                <div className="donut-name">{f.nombre}</div>
+                <div className="donut-legend">
+                  <span><span className="dot" style={{ background: colorOf(f.id) }} />Flete</span>
+                  <span><span className="dot" style={{ background: '#e1e0d9' }} />Resto de la venta</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="section">
+        <h2>Tabla comparativa</h2>
+      </div>
+      <div className="table-wrap">
+        <table className="compare-table">
+          <thead>
+            <tr>
+              <th>Métrica</th>
+              {computed.map((f) => <th key={f.id}>{f.nombre}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td className="row-label">Modo de pago</td>{computed.map((f) => <td key={f.id}>{f.modoPago === 'vivo' ? 'kg vivo (desbaste)' : 'kg de carne (rinde)'}</td>)}</tr>
+            <tr><td className="row-label">Precio ofrecido</td>{computed.map((f) => <td key={f.id}>{f.modoPago === 'vivo' ? fmtMoney2(f.precioKgVivo) + '/kg vivo' : fmtMoney2(f.precioCarne) + '/kg carne'}</td>)}</tr>
+            <tr><td className="row-label">Desbaste (%)</td>{computed.map((f) => <td key={f.id}>{f.modoPago === 'vivo' ? fmtPct(f.desbaste) : '—'}</td>)}</tr>
+            <tr><td className="row-label">Rinde (%)</td>{computed.map((f) => <td key={f.id}>{f.modoPago === 'vivo' ? '— (no aplica)' : fmtPct(f.rinde)}</td>)}</tr>
+            <tr><td className="row-label">Peso vivo (kg)</td>{computed.map((f) => <td key={f.id}>{fmtKg(f.pesoVivoTotal)}</td>)}</tr>
+            <tr><td className="row-label">Kg de carne</td>{computed.map((f) => <td key={f.id}>{f.modoPago === 'vivo' ? '—' : fmtKg(f.kgCarne)}</td>)}</tr>
+            <tr><td className="row-label">Modo de flete</td>{computed.map((f) => <td key={f.id}>{f.fleteModo === 'total' ? '$ total' : '$/km'}</td>)}</tr>
+            <tr><td className="row-label">Flete ($)</td>{computed.map((f) => <td key={f.id}>{fmtMoney(f.costoFlete)}</td>)}</tr>
+            <tr><td className="row-label">Flete por kg</td>{computed.map((f) => <td key={f.id}>{f.modoPago === 'vivo' ? fmtMoney2(f.costoFletePorKgVivo) + ' (vivo)' : fmtMoney2(f.costoFletePorKg) + ' (carne)'}</td>)}</tr>
+            <tr><td className="row-label">Comisión</td>{computed.map((f) => <td key={f.id}>{fmtPct(f.comisionPct)} · {fmtMoney(f.comisionMonto)}</td>)}</tr>
+            <tr><td className="row-label">Premio por calidad ($)</td>{computed.map((f) => <td key={f.id}>{fmtMoney(f.premioCalidad)}</td>)}</tr>
+            <tr><td className="row-label">Precio neto ($/kg carne)</td>{computed.map((f) => <td key={f.id} className={f.id === best.id && f.modoPago !== 'vivo' ? 'best-cell' : ''}>{f.modoPago === 'vivo' ? '—' : fmtMoney2(f.precioEfectivoPorKgCarne)}</td>)}</tr>
+            <tr><td className="row-label">Precio neto ($/kg vivo)</td>{computed.map((f) => <td key={f.id} className={f.id === best.id ? 'best-cell' : ''}>{fmtMoney2(f.precioEquivalenteKgVivo)}</td>)}</tr>
+            <tr><td className="row-label">Ingreso total ($)</td>{computed.map((f) => <td key={f.id} className={f.id === best.id ? 'best-cell' : ''}>{fmtMoney(f.ingresoNeto)}</td>)}</tr>
+            <tr><td className="row-label">Diferencia vs mejor ($)</td>{computed.map((f) => <td key={f.id} className={f.id === best.id ? 'best-cell' : (f.ingresoNeto < best.ingresoNeto ? 'neg' : '')}>{f.id === best.id ? '—' : signed(f.ingresoNeto - best.ingresoNeto, fmtMoney)}</td>)}</tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Negotiation */}
+      <div className="section">
+        <h2>Negociación: precio de equilibrio</h2>
+        <p className="hint">¿Cuánto debería pagar un frigorífico para igualar la oferta neta de otro? Considera rinde, peso vivo, flete, descuentos y comisión.</p>
+      </div>
+      <div className="negotiation-card">
+        <h3>Puntos de equilibrio frente al líder ({best.nombre})</h3>
+        <p className="hint">Manteniendo su propio rinde, peso vivo, flete, descuentos y premio por calidad, así queda el precio que cada frigorífico necesitaría ofrecer para empatar el ingreso neto de {best.nombre}.</p>
+        {computed.filter((f) => f.id !== best.id).map((f) => {
+          const eq = precioEquilibrioDe(f, best.ingresoNeto);
+          return (
+            <div className="eq-line" key={f.id}>
+              Para igualar la oferta neta de <b>{best.nombre}</b>, <b>{f.nombre}</b> debería pagar <b>{fmtMoney2(eq.precio)} {eq.unidad}</b> (hoy ofrece {fmtMoney2(eq.actual)} {eq.unidad} → necesita {signed(eq.brecha, fmtMoney2)}/kg, {signed(eq.brechaPct, fmtPct)}).
+            </div>
+          );
+        })}
+
+        <div className="eq-tool no-print">
+          <div className="field">
+            <label>Calcular precio de equilibrio para</label>
+            <select value={eqTargetId} onChange={(e) => setEqTarget(Number(e.target.value))}>
+              {computed.map((f) => <option key={f.id} value={f.id}>{f.nombre}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label>Para igualar el ingreso neto de</label>
+            <select value={eqReferenceId} onChange={(e) => setEqReference(Number(e.target.value))}>
+              {computed.map((f) => <option key={f.id} value={f.id}>{f.nombre}</option>)}
+            </select>
+          </div>
+          <div className="eq-result">
+            <b>{eqTargetF.nombre}</b> necesita <b>{fmtMoney2(eqPrecio)} {eqCalc.unidad}</b> (hoy {fmtMoney2(eqCalc.actual)} {eqCalc.unidad}) para igualar a <b>{eqReferenceF.nombre}</b> — variación: {signed(eqBrecha, fmtMoney2)}/kg ({signed(eqBrechaPct, fmtPct)}).
+          </div>
+        </div>
+      </div>
+
+      <footer className="formulas">
+        <b>Fórmulas:</b> Modo "por kg de carne": Kg de carne = Peso vivo × Rinde; Ingreso bruto = Kg de carne × Precio/kg carne.
+        Modo "por kg vivo": Peso pagable = Peso vivo pesado − Desbaste (no interviene el rinde); Ingreso bruto = Peso pagable × Precio/kg vivo.
+        Flete: $/km × distancia, o monto fijo.
+        Comisión = Ingreso bruto × % de comisión. Ingreso neto = Ingreso bruto − Costo de flete − Otros descuentos − Comisión + Premio por calidad.
+        Precio equivalente por kg vivo = Ingreso neto ÷ Peso vivo (esta es la base común que permite comparar frigoríficos con distinto modo de pago). Precio efectivo por kg carne = Ingreso neto ÷ Kg de carne (solo para los que pagan por kg de carne).
+        Precio de equilibrio de un frigorífico B frente a un frigorífico A = (Ingreso neto de A + Costo de flete de B + Descuentos de B − Premio por calidad de B) ÷ (Base de B × (1 − Comisión de B)), donde la base de B es su Kg de carne o su Peso pagable, según su modo de pago.
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+<script>
+  (function () {
+    var src = document.getElementById('app-source').textContent;
+    var out = Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code;
+    var s = document.createElement('script');
+    s.textContent = out;
+    document.body.appendChild(s);
+  })();
+</script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('service-worker.js').catch(function (err) {
+        console.warn('No se pudo registrar el service worker:', err);
+      });
+    });
+  }
+</script>
+</body>
+</html>
